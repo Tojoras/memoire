@@ -19,17 +19,60 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [maxCapacity, setMaxCapacity] = useState(10);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   useEffect(() => {
     const savedCapacity = localStorage.getItem('tankMaxCapacity');
     if (savedCapacity) {
       setMaxCapacity(parseFloat(savedCapacity));
     }
+
+    const lastWater = localStorage.getItem('lastWaterLevel');
+    if (lastWater) {
+      setLatestWater(JSON.parse(lastWater));
+    }
+
+    const lastAtmo = localStorage.getItem('lastAtmospheric');
+    if (lastAtmo) {
+      setLatestAtmospheric(JSON.parse(lastAtmo));
+    }
+
+    const lastUpdateTime = localStorage.getItem('lastUpdateTime');
+    if (lastUpdateTime) {
+      setLastUpdate(new Date(lastUpdateTime));
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   useEffect(() => {
     loadData();
-    subscribeToChanges();
+    const unsubscribe = subscribeToChanges();
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const handleCapacityChange = () => {
+      const saved = localStorage.getItem('tankMaxCapacity');
+      if (saved) {
+        setMaxCapacity(parseFloat(saved));
+      }
+    };
+
+    window.addEventListener('tankCapacityChanged', handleCapacityChange);
+    return () => window.removeEventListener('tankCapacityChanged', handleCapacityChange);
   }, []);
 
   const loadData = async () => {
@@ -48,13 +91,23 @@ export function Dashboard() {
 
       if (waterData) {
         setWaterLevels(waterData);
-        setLatestWater(waterData[0] || null);
+        if (waterData.length > 0) {
+          setLatestWater(waterData[0]);
+          localStorage.setItem('lastWaterLevel', JSON.stringify(waterData[0]));
+        }
       }
 
       if (atmosphericData) {
         setAtmospheric(atmosphericData);
-        setLatestAtmospheric(atmosphericData[0] || null);
+        if (atmosphericData.length > 0) {
+          setLatestAtmospheric(atmosphericData[0]);
+          localStorage.setItem('lastAtmospheric', JSON.stringify(atmosphericData[0]));
+        }
       }
+
+      const now = new Date();
+      setLastUpdate(now);
+      localStorage.setItem('lastUpdateTime', now.toISOString());
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -71,6 +124,9 @@ export function Dashboard() {
         (payload) => {
           const newLevel = payload.new as WaterLevel;
           setLatestWater(newLevel);
+          localStorage.setItem('lastWaterLevel', JSON.stringify(newLevel));
+          setLastUpdate(new Date());
+          localStorage.setItem('lastUpdateTime', new Date().toISOString());
           setWaterLevels((prev) => [newLevel, ...prev.slice(0, 99)]);
         }
       )
@@ -84,6 +140,9 @@ export function Dashboard() {
         (payload) => {
           const newCondition = payload.new as AtmosphericCondition;
           setLatestAtmospheric(newCondition);
+          localStorage.setItem('lastAtmospheric', JSON.stringify(newCondition));
+          setLastUpdate(new Date());
+          localStorage.setItem('lastUpdateTime', new Date().toISOString());
           setAtmospheric((prev) => [newCondition, ...prev.slice(0, 99)]);
         }
       )
@@ -157,17 +216,18 @@ export function Dashboard() {
     );
   }
 
-  useEffect(() => {
-    const handleCapacityChange = () => {
-      const saved = localStorage.getItem('tankMaxCapacity');
-      if (saved) {
-        setMaxCapacity(parseFloat(saved));
-      }
-    };
+  const getTimeAgo = (date: Date | null) => {
+    if (!date) return 'N/A';
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
 
-    window.addEventListener('tankCapacityChanged', handleCapacityChange);
-    return () => window.removeEventListener('tankCapacityChanged', handleCapacityChange);
-  }, []);
+    if (minutes < 1) return 'à l\'instant';
+    if (minutes < 60) return `il y a ${minutes}m`;
+    if (hours < 24) return `il y a ${hours}h`;
+    return `il y a ${Math.floor(hours / 24)}j`;
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
@@ -179,10 +239,15 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">{getSectionTitle()}</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Monitoring en temps réel</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {isOnline ? '🟢 En ligne' : '🔴 Hors ligne'} · Dernière mise à jour: {getTimeAgo(lastUpdate)}
+                </p>
               </div>
               <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{user?.username}</span>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">{user?.username}</span>
+                </div>
                 <button
                   onClick={signOut}
                   className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
@@ -195,7 +260,18 @@ export function Dashboard() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-6 py-6 bg-gray-50 dark:bg-gray-900">{renderContent()}</main>
+        <main className="flex-1 overflow-y-auto px-6 py-6 bg-gray-50 dark:bg-gray-900">
+          {!isOnline && (
+            <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-3">
+              <div className="text-amber-600 dark:text-amber-400 text-lg">⚠️</div>
+              <div>
+                <h3 className="font-semibold text-amber-900 dark:text-amber-200">Vous êtes hors ligne</h3>
+                <p className="text-sm text-amber-800 dark:text-amber-300">Les données affichées sont les dernières données reçues. Reconnectez-vous pour synchroniser.</p>
+              </div>
+            </div>
+          )}
+          {renderContent()}
+        </main>
       </div>
     </div>
   );

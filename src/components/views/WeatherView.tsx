@@ -1,5 +1,6 @@
-import { Thermometer, Droplets, Wind, Calendar } from 'lucide-react';
+import { Thermometer, Droplets, Wind, Calendar, AlertTriangle, Cloud, CloudRain } from 'lucide-react';
 import { AtmosphericCondition } from '../../lib/supabase';
+import { getWeekForecast, getRainAlerts } from '../../services/weatherService';
 
 interface WeatherViewProps {
   atmospheric: AtmosphericCondition[];
@@ -7,6 +8,9 @@ interface WeatherViewProps {
 }
 
 export function WeatherView({ atmospheric, latestAtmospheric }: WeatherViewProps) {
+  const weekForecast = getWeekForecast();
+  const rainAlerts = getRainAlerts();
+
   const calculateStats = () => {
     if (atmospheric.length === 0) {
       return {
@@ -53,8 +57,34 @@ export function WeatherView({ atmospheric, latestAtmospheric }: WeatherViewProps
 
   const comfort = getComfortLevel();
 
+  const getWeatherIcon = (icon: string) => {
+    switch(icon) {
+      case 'sunny':
+        return <CloudRain className="w-6 h-6 text-yellow-500" />;
+      case 'cloudy':
+        return <Cloud className="w-6 h-6 text-gray-400" />;
+      case 'rain':
+      case 'heavy-rain':
+        return <CloudRain className="w-6 h-6 text-blue-500" />;
+      default:
+        return <Cloud className="w-6 h-6 text-gray-400" />;
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {rainAlerts.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border-l-4 border-amber-500 rounded-lg p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="font-semibold text-amber-900 dark:text-amber-100">Alerte Météo</h4>
+            {rainAlerts.map((alert, idx) => (
+              <p key={idx} className="text-sm text-amber-800 dark:text-amber-200 mt-1">{alert}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl shadow-lg p-6 text-white">
           <div className="flex items-center gap-2 mb-2">
@@ -125,6 +155,48 @@ export function WeatherView({ atmospheric, latestAtmospheric }: WeatherViewProps
               <span className="text-lg font-bold text-orange-600">{stats.minHumidity.toFixed(1)}%</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
+        <div className="flex items-center gap-2 mb-4">
+          <Cloud className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Prévisions - Antananarivo, Ambohibe</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          {weekForecast.map((day, idx) => (
+            <div key={idx} className={`p-4 rounded-lg text-center border transition ${
+              day.rainProbability >= 60
+                ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700'
+                : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600'
+            }`}>
+              <p className="font-semibold text-sm text-gray-900 dark:text-white mb-2">{day.day}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{day.date}</p>
+
+              <div className="flex justify-center mb-3">
+                {getWeatherIcon(day.icon)}
+              </div>
+
+              <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">{day.condition}</p>
+
+              <div className="space-y-1 mb-3">
+                <p className="text-sm font-bold text-gray-900 dark:text-white">
+                  {day.tempMax}°
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {day.tempMin}°
+                </p>
+              </div>
+
+              <div className={`text-xs font-semibold ${
+                day.rainProbability >= 60
+                  ? 'text-blue-600 dark:text-blue-300'
+                  : 'text-gray-600 dark:text-gray-400'
+              }`}>
+                {day.rainProbability}% pluie
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
